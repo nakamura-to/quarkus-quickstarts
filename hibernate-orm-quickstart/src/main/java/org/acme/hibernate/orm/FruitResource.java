@@ -2,6 +2,8 @@ package org.acme.hibernate.orm;
 
 import java.util.List;
 
+import io.agroal.api.AgroalDataSource;
+import io.quarkus.narayana.jta.runtime.TransactionConfiguration;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -33,6 +35,9 @@ public class FruitResource {
 
     @Inject
     EntityManager entityManager;
+    
+    @Inject
+    AgroalDataSource dataSource;
 
     @GET
     public List<Fruit> get() {
@@ -52,12 +57,32 @@ public class FruitResource {
 
     @POST
     @Transactional
-    public Response create(Fruit fruit) {
+    @TransactionConfiguration(timeout = 3)
+    public Response create(Fruit fruit) throws Exception {
         if (fruit.getId() != null) {
             throw new WebApplicationException("Id was invalidly set on request.", 422);
         }
 
-        entityManager.persist(fruit);
+        try (var con = dataSource.getConnection()) {
+            LOGGER.info("create 1: autoCommit=" + con.getAutoCommit()); // false
+        }
+
+        try (var con = dataSource.getConnection()) {
+            LOGGER.info("create 2: autoCommit=" + con.getAutoCommit()); // false
+        }
+
+        // We emulate a time-consuming business logic with Thread.sleep.
+        // The transaction will be rolled back while this thread is sleeping.
+        Thread.sleep(5000);
+
+        try (var con = dataSource.getConnection()) {
+            LOGGER.info("create 3: autoCommit=" + con.getAutoCommit()); // true
+        }
+
+        try (var con = dataSource.getConnection()) {
+            LOGGER.info("create 4: autoCommit=" + con.getAutoCommit()); // true
+        }
+
         return Response.ok(fruit).status(201).build();
     }
 
